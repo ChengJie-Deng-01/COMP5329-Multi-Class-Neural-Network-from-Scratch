@@ -8,6 +8,7 @@ class Optimizer:
     def update(self, layer):
         raise NotImplementedError("子类必须实现update方法")
     
+    # W ← (1 - ηλ) * W
     def _apply_weight_decay(self, weights):
         if self.weight_decay > 0:
             return weights - self.learning_rate * self.weight_decay * weights

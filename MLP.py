@@ -4,6 +4,7 @@ import pandas as pd
 from sklearn.preprocessing import OneHotEncoder
 from optimizers import SGD, Momentum, Adam
 from dropout import Dropout
+from batch_norm import BatchNormalization
 
 
 
@@ -157,7 +158,7 @@ class Layer:
     # 1. 在函数定义中，显式参数先接收具有相同名字的参数
     # 2. 其余未匹配的命名参数会被打包进 **kwargs（这里是 optimizer_params）
     # 3. 通过 **optimizer_params 再解包，传给另一个函数或类时，会展开为 key=value 形式
-    def __init__(self, n_inputs, n_neurons, optimizer='sgd', dropout_rate=0.0, **optimizer_params): # 如果创建了类的对象，就会自动运行这个，把特定的属性输入进来，self表示类的对象自己
+    def __init__(self, n_inputs, n_neurons, optimizer='sgd', dropout_rate=0.0, use_batch_norm=False, **optimizer_params): # 如果创建了类的对象，就会自动运行这个，把特定的属性输入进来，self表示类的对象自己
         
         self.weights = np.random.normal(0, np.sqrt(2 / n_inputs), size=(n_inputs, n_neurons)) # He初始化
         
@@ -180,6 +181,9 @@ class Layer:
         
         # 初始化 Dropout
         self.dropout = Dropout(rate=dropout_rate) if dropout_rate > 0 else None
+        
+        # 初始化 Batch Normalization
+        self.batch_norm = BatchNormalization() if use_batch_norm else None
     
 
     
@@ -187,16 +191,24 @@ class Layer:
         self.inputs = inputs
         self.output = np.dot(inputs, self.weights) + self.bias
         
+        # 应用 Batch Normalization
+        if self.batch_norm is not None:
+            self.output = self.batch_norm.forward(self.output, training)
+        
         # 应用 Dropout
         if self.dropout is not None:
             self.output = self.dropout.forward(self.output, training)
         
         return self.output
     
-    def layer_backward(self, dvalues):
+    def layer_backward(self, dvalues, learning_rate):
         # 应用 Dropout 的反向传播
         if self.dropout is not None:
             dvalues = self.dropout.backward(dvalues)
+        
+        # 应用 Batch Normalization 的反向传播
+        if self.batch_norm is not None:
+            dvalues = self.batch_norm.backward(dvalues, learning_rate)
         
         # 计算权重梯度
         dweights = np.dot(self.inputs.T, dvalues)
@@ -215,7 +227,7 @@ class Layer:
 
 class network():
     
-    def __init__(self, network_shape, optimizer='sgd', dropout_rates=None, **optimizer_params): # network_shape需要表示这个网络由几层组成，每一层有几个神经元
+    def __init__(self, network_shape, optimizer='sgd', dropout_rates=None, use_batch_norm=False, **optimizer_params): # network_shape需要表示这个网络由几层组成，每一层有几个神经元
         
         # 比如 network_shape = [128, 64, 32, 16, 10] 表示有五层（第一层是输入），每一层有多少个神经元
         
@@ -232,6 +244,7 @@ class network():
             layer = Layer(network_shape[i], network_shape[i+1], 
                          optimizer=optimizer,
                          dropout_rate=dropout_rates[i],
+                         use_batch_norm=use_batch_norm,
                          **optimizer_params) # 第一次定义的是输入层和第一个隐藏层的权重矩阵
             
             self.layer_lists.append(layer)
@@ -279,7 +292,7 @@ class network():
     
 
     
-    def backward(self, outputs, y_true, acti_func):
+    def backward(self, outputs, y_true, acti_func, learning_rate):
         # 计算输出层的梯度
         if acti_func[-1] == "softmax":
             dvalues = outputs[-1] - y_true
@@ -295,7 +308,7 @@ class network():
                 dvalues = dvalues * gelu_derivative(self.layer_lists[i].output)
             
             # 更新参数并获取下一层的梯度
-            dvalues = self.layer_lists[i].layer_backward(dvalues)
+            dvalues = self.layer_lists[i].layer_backward(dvalues, learning_rate)
 
     def train(self, X_train, y_train, X_val, y_val, acti_func, epochs=100, batch_size=128, early_stopping_patience=10):
         best_val_loss = float('inf')
@@ -316,7 +329,7 @@ class network():
                 outputs = self.forward(batch_X, acti_func, training=True)
                 
                 # 反向传播
-                self.backward(outputs, batch_y, acti_func)
+                self.backward(outputs, batch_y, acti_func, self.layer_lists[0].optimizer.learning_rate)
             
             # 计算验证集损失（非训练模式）
             val_outputs = self.forward(X_val, acti_func, training=False)
@@ -371,7 +384,7 @@ print(categorical_cross_entropy(n1.forward(train_data, ["relu", "gelu", "gelu", 
 # 定义激活函数列表
 activation_functions = ["gelu", "gelu", "gelu", "softmax"]
 network_shape = [128, 64, 64, 32, 10]
-dropout_rates = [0.0, 0, 0, 0.0]
+dropout_rates = [0.15, 0.15, 0.15, 0.0]
 
 
 # 创建网络实例
@@ -380,14 +393,15 @@ model_sgd = network([128, 64, 32, 16, 10], optimizer='sgd', learning_rate=0.01)
 # model_adam = network([128, 64, 32, 16, 10], optimizer='adam', learning_rate=0.01, beta1=0.9, beta2=0.999)
 
 
-# 使用 Adam 优化器，添加 Dropout
+# 使用 Adam 优化器，添加 Batch Normalization
 model_adam = network(network_shape, 
                     optimizer='adam', 
                     dropout_rates=dropout_rates,
+                    use_batch_norm=True,  # 启用 Batch Normalization
                     learning_rate=0.001,
                     beta1=0.9,
                     beta2=0.999,
-                    weight_decay=0.01)
+                    weight_decay=0.0003)
 
 
 # 训练模型
