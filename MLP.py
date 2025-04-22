@@ -362,6 +362,8 @@ class network():
         accuracy = np.mean(predictions == np.argmax(y, axis=1))
         return accuracy
 
+print(100)
+
 n1 = network([128, 64, 32, 16, 10])
 
 print(n1.forward(train_data, ["relu", "gelu", "gelu", "softmax"])[-1])
@@ -384,7 +386,7 @@ print(categorical_cross_entropy(n1.forward(train_data, ["relu", "gelu", "gelu", 
 # 定义激活函数列表
 activation_functions = ["gelu", "gelu", "gelu", "softmax"]
 network_shape = [128, 64, 64, 32, 10]
-dropout_rates = [0.15, 0.15, 0.15, 0.0]
+dropout_rates = [0., 0., 0., 0]
 
 
 # 创建网络实例
@@ -412,3 +414,5 @@ model_adam.train(
     epochs=200,
     batch_size=128
 )
+
+print(model_adam.evaluate(test_data, test_label_onehot, activation_functions))
